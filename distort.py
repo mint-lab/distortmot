@@ -172,9 +172,6 @@ if __name__ == "__main__":
     # 특정 좌표를 왜곡하여 확인
     # test_distort_points()
 
-    # 테스트 함수 실행
-    # test()
-
     # new GT 
     sequences = ["MOT17-02-SDP", "MOT17-04-SDP", "MOT17-05-SDP","MOT17-09-SDP",
                  "MOT17-10-SDP","MOT17-11-SDP","MOT17-13-SDP"]
@@ -190,19 +187,19 @@ if __name__ == "__main__":
 
         # Make distorted image 
         test_distort("/home/chanhoseo/motws/Data/MOT17/train/"+seq+"/img1/000001.jpg",
-                     '/home/chanhoseo/motws/distortMOT/distortMOT17/images/'+seq+'_distorted_image.jpg',
+                     '/home/chanhoseo/motws/Data/distortMOT17/images/'+seq+'_distorted_image.jpg',
                     *params)
 
-        # # Create distorted detection result 
-        # create_distorted_det_results(
-        #                         "det_results/mot17/"+seq+".txt", 
-        #                         "/home/chanhoseo/motws/distortMOT/DISTORTMOT17_val/"+seq+"/"+seq+".txt", 
-        #                         "/home/chanhoseo/motws/Data/MOT17/train/"+seq+"/img1/000001.jpg", 
-        #                         *params)
+        # Create distorted detection result 
+        create_distorted_det_results(
+                                "det_results/mot17/"+seq+".txt", 
+                                "/home/chanhoseo/motws/Data/DISTORTMOT17_val/"+seq+"/"+seq+".txt", 
+                                "/home/chanhoseo/motws/Data/MOT17/train/"+seq+"/img1/000001.jpg", 
+                                *params)
 
         # Create distorted gt 
         create_distorted_mot17(
                         '/home/chanhoseo/motws/Data/MOT17/train/'+seq+"/gt/gt.txt",
-                        '/home/chanhoseo/motws/disortMOT/DISTORTMOT17_val/'+seq+'/gt/gt.txt',
+                        '/home/chanhoseo/motws/Data/DISTORTMOT17_val/'+seq+'/gt/gt.txt',
                         "/home/chanhoseo/motws/Data/MOT17/train/"+seq+"/img1/000001.jpg", 
                         *params)
