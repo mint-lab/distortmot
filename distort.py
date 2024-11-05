@@ -3,6 +3,7 @@ import numpy as np
 import os
 from tqdm import tqdm
 import matplotlib.pyplot as plt
+
 def readCamParaFile(camera_para, flag_KRT=False):
     R = np.zeros((3, 3))
     T = np.zeros((3, 1))
@@ -45,54 +46,41 @@ def readCamParaFile(camera_para, flag_KRT=False):
     else:
         KiKo = np.dot(Ki, Ko)
         return Ki, Ko, True
-    
-def distort(image, f, c, k1, k2, k3, cam_mode = "KB"):
+
+def distort(image, f, c, k1, k2, k3):
     fx, fy = f
     cx, cy = c  
-    h, w = image.shape[:2]
-    x, y = np.meshgrid(np.arange(w), np.arange(h))
-    x = (x - cx) / fx
-    y = (y - cy) / fy
-    r = np.sqrt(x**2 + y**2)
-
-    if cam_mode == "BC":
-        x_distorted = x * (1 + k1 * r**2 + k2 * r**4 + k3 * r**6)
-        y_distorted = y * (1 + k1 * r**2 + k2 * r**4 + k3 * r**6)
-    elif cam_mode == "KB":
-        # 4. 각도 계산
-        theta = np.arctan(r)
-        
-        # 5. 왜곡된 반경 계산
-        theta_distorted = theta * (1 + k1 * theta**2 + k2 * theta**4 + k3 * theta**6)
-        # 6. 왜곡된 좌표 계산 (정규화된 x, y 좌표)
-        scale = np.where(r != 0, theta_distorted / r, 1)  # r이 0인 경우를 대비해 1로 설정
-        x_distorted = x * scale
-        y_distorted = y * scale
-    
-    x_distorted = (x_distorted * fx) + cx
-    y_distorted = (y_distorted * fy) + cy
-    map_x = np.float32(x_distorted)
-    map_y = np.float32(y_distorted)
-    distorted_image = cv2.remap(image, map_x, map_y, interpolation=cv2.INTER_LINEAR)
-    return distorted_image
-
-def distort_points_CV(pts, f, c, k1, k2, k3):
-    # Construct the camera matrix
-    camera_matrix = np.array([[f[0], 0, c[0]],
-                              [0, f[1], c[1]],
-                              [0, 0, 1]], dtype=np.float64)
-    
-    # Set distortion coefficients
     dist_coeffs = np.array([k1, k2, 0, 0, k3], dtype=np.float64)
-    
-    # Convert points to the required shape
-    pts = np.array(pts, dtype=np.float64).reshape(-1, 1, 2)
-    
-    # Apply distortion
-    distorted_pts = cv2.undistortPoints(pts, camera_matrix, dist_coeffs, None, camera_matrix)
-    
-    return distorted_pts.reshape(-1, 2)
 
+    K = np.array([[fx, 0, cx],
+                 [0, fy, cy],
+                 [0, 0, 1]])
+    
+    h, w = image.shape[:2]
+    u, v = np.meshgrid(np.arange(w), np.arange(h))
+
+    # Normalize coordinates
+    # u = (u - cx) / fx
+    # v = (v - cy) / fy
+    uv = np.stack((u, v), axis=-1).reshape(-1, 1, 2)  # 각 점의 (u, v) 좌표 쌍 생성 및 리쉐이프
+    r = np.sqrt(u**2 + v**2)
+
+    # Using undistortPoints to calculate distorted coordinates
+    uv_distorted = cv2.undistortPoints(uv.astype(np.float32), K, dist_coeffs)
+    uv_distorted = uv_distorted.reshape(h, w, 2)  # 원래 이미지 형태로 리쉐이프
+    
+    # 분할
+    u_distorted = uv_distorted[:, :, 0]  # u 좌표
+    v_distorted = uv_distorted[:, :, 1]  # v 좌표
+
+    # Denormalize the coordinates
+    u_distorted = (u_distorted * fx) + cx
+    v_distorted = (v_distorted * fy) + cy
+    map_x = np.float32(u_distorted)
+    map_y = np.float32(v_distorted)
+    distorted_image = cv2.remap(image, map_x, map_y, interpolation=cv2.INTER_LINEAR)
+    
+    return distorted_image
 
 def distort_points_BC(pts, f, c, k1, k2, k3):
     fx, fy = f
@@ -195,8 +183,7 @@ def test_distort_new(image_file, f, c, cam_distort, K, det_result_file):
     k1, k2, k3, k4 = cam_distort
 
     # 왜곡 적용
-    distorted_image1 = distort(image, f, c, k1, k2, k3, cam_mode ="KB")
-    distorted_image2 = distort(image, f, c, k1, k2, k3, cam_mode ="BC")
+    distorted_image1 = distort(image, f, c, k1, k2, k3)
 
 
     with open(det_result_file) as f_in:
@@ -211,19 +198,17 @@ def test_distort_new(image_file, f, c, cam_distort, K, det_result_file):
 
         # Distort points 
         pts = convert_raw_to_pts(int(float(bb_left)), int(float(bb_top)), int(float(bb_w)), int(float(bb_h)))        
-        distorted_pts1 = distort_points_KB(pts, f, c, k1, k2, k3) 
-        distorted_pts2 = distort_points_BC(pts, f, c, k1, k2, k3)
+        distorted_pts1 = distort_points_BC(pts, f, c, k1, k2, k3) 
 
         # Ensure distorted_pts is a valid numpy array
         if distorted_pts1.size > 0:
-            distorted_pts1 = np.array(distorted_pts1, dtype=np.float32)  
-            distorted_pts2 = np.array(distorted_pts2, dtype=np.float32) 
+            distorted_pts1 = np.array(distorted_pts1, dtype=np.float32) 
+
             # Create new bounding box which is smallest rectangle including distorted points  
             u1, v1, w1, h1 = cv2.boundingRect(distorted_pts1)
-            u2, v2, w2, h2 = cv2.boundingRect(distorted_pts2)
+
             # Draw the rectangle on the image
             cv2.rectangle(distorted_image1, (u1, v1), (u1 + w1, v1 + h1), (0, 0, 255), 2)
-            cv2.rectangle(distorted_image2, (u2, v2), (u2 + w2, v2 + h2), (255, 0, 0), 2)
         
   
     plt.subplot(2, 2, 1)
@@ -236,11 +221,6 @@ def test_distort_new(image_file, f, c, cam_distort, K, det_result_file):
     plt.imshow(distorted_image1)
     plt.axis("off")  # Tắt các trục tọa độ
     plt.title("Image KB")
-
-    plt.subplot(2, 2, 3)
-    plt.imshow(distorted_image2)
-    plt.axis("off")  # Tắt các trục tọa độ
-    plt.title("Image BC")
 
     plt.show()
 
@@ -291,7 +271,7 @@ def create_distorted_mot17(gt_file, save_file, image_file, K, cam_dist):
                 pt1, pt2, pt3, pt4 = pts
                 cv2.rectangle(image, tuple(pt1), tuple(pt3), color=(0, 255, 0), thickness=2)
                 cv2.putText(image, str(id), tuple(pt1), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
-                distorted_pts = distort_points_KB(pts, K, cam_dist)
+                distorted_pts = distort_points_BC(pts, K, cam_dist)
 
                 # Ensure distorted_pts is a valid numpy array
                 if distorted_pts.size > 0:
@@ -320,7 +300,7 @@ def create_distorted_det_results(det_result_file, save_file, image_file, K, cam_
                 # Use only first frame image to get width and height of image
 
                 image = cv2.imread(image_file)
-                distorted_pts = distort_points_new(pts, K, cam_dist)
+                distorted_pts = distort_points_BC(pts, K, cam_dist)
 
                 # Ensure distorted_pts is a valid numpy array
                 if distorted_pts.size > 0:
@@ -352,34 +332,34 @@ if __name__ == "__main__":
             K = K[:, :3] # Make sure 3x3
         K = K.astype(np.float32)
         f = (K[0][0], K[1][1])
-
         c = (K[0][2], K[1][2])
+        
         # params = [cam_focal, cam_center, dist_coeffs]
-        dist_coeffs = np.array([0.5, 0.3 ,0.0, 0.0])
+        dist_coeffs = np.array([-0.5, 0.3 ,0.0, 0.0])
         params = [K, dist_coeffs]
         # test_dist_pts("/home/chanhoseo/motws/Data/MOT17/train/"+seq+"/img1/000001.jpg",
         #                 "det_results/mot17/"+seq+".txt",                      
         #                 *params)
 
-        test_distort_new("/home/chanhoseo/motws/Data/MOT17/train/"+seq+"/img1/000001.jpg",
-                        f, c, dist_coeffs, K,
-                        "det_results/mot17/"+seq+".txt",)
+        # test_distort_new("/home/chanhoseo/motws/Data/MOT17/train/"+seq+"/img1/000001.jpg",
+        #                 f, c, dist_coeffs, K,
+        #                 "det_results/mot17/"+seq+".txt",)
         
         # # Make distorted image 
         # test_distort("/home/chanhoseo/motws/Data/MOT17/train/"+seq+"/img1/000001.jpg",
         #              '/home/chanhoseo/motws/Data/distortMOT17/images/'+seq+'_distorted_image.jpg',
         #             *params)
 
-        # # Create distorted detection result 
-        # create_distorted_det_results(
-        #                         "det_results/mot17/"+seq+".txt", 
-        #                         "/home/chanhoseo/motws/Data/DISTORTMOT17_val/"+seq+"/"+seq+".txt", 
-        #                         "/home/chanhoseo/motws/Data/MOT17/train/"+seq+"/img1/000001.jpg", 
-        #                         *params)
+        # Create distorted detection result 
+        create_distorted_det_results(
+                                "det_results/mot17/"+seq+".txt", 
+                                "/home/chanhoseo/motws/Data/DISTORTMOT17_val/"+seq+"/"+seq+".txt", 
+                                "/home/chanhoseo/motws/Data/MOT17/train/"+seq+"/img1/000001.jpg", 
+                                *params)
 
-        # # Create distorted gt 
-        # create_distorted_mot17(
-        #                 '/home/chanhoseo/motws/Data/MOT17/train/'+seq+"/gt/gt.txt",
-        #                 '/home/chanhoseo/motws/Data/DISTORTMOT17_val/'+seq+'/gt/gt.txt',
-        #                 "/home/chanhoseo/motws/Data/MOT17/train/"+seq+"/img1/000001.jpg", 
-        #                 *params)
+        # Create distorted gt 
+        create_distorted_mot17(
+                        '/home/chanhoseo/motws/Data/MOT17/train/'+seq+"/gt/gt.txt",
+                        '/home/chanhoseo/motws/Data/DISTORTMOT17_val/'+seq+'/gt/gt.txt',
+                        "/home/chanhoseo/motws/Data/MOT17/train/"+seq+"/img1/000001.jpg", 
+                        *params)
