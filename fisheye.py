@@ -21,6 +21,7 @@ def test_fisheye(image_file, det_result_file, K, cam_distort, f, c):
     with open(det_result_file) as f_in:
         image = cv2.imread(image_file)
         k1, k2 , k3 = cam_distort[0], cam_distort[1], 0
+        
         image = distort(image, f, c, k1, k2, k3)
         det_result = f_in.read().splitlines()[0]
         # e.g) 1,1,584.6,446.2,87.8,261.9,0.96,-1,-1,-1
@@ -70,7 +71,7 @@ if __name__ == "__main__":
         c = (K[0][2], K[1][2])
         
         # params = [cam_focal, cam_center, dist_coeffs]
-        dist_coeffs = np.array([0.5, 0.3 ,0.0, 0.0])
+        dist_coeffs = np.array([-0.5, 0.3 ,0.0, 0.0])
         params = [K, dist_coeffs]
 
         test_fisheye("/home/chanhoseo/motws/Data/MOT17/train/"+seq+"/img1/000001.jpg",
